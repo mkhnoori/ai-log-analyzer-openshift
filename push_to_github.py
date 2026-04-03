@@ -39,7 +39,9 @@ REPO_DESC   = (
 def ok(msg):   print(f"  {GREEN}✓{RESET} {msg}")
 def info(msg): print(f"  {CYAN}→{RESET} {msg}")
 def warn(msg): print(f"  {YELLOW}⚠{RESET} {msg}")
-def fail(msg): print(f"\n  {RED}✗ Error:{RESET} {msg}\n"); sys.exit(1)
+def fail(msg):
+    print(f"\n  {RED}\u2717 Error:{RESET} {msg}\n")
+    sys.exit(1)
 def step(n, t, msg): print(f"\n{BOLD}{CYAN}[{n}/{t}]{RESET} {BOLD}{msg}{RESET}")
 
 
@@ -132,7 +134,7 @@ def main():
 
     if existing.returncode == 0:
         warn(f"Repo {GITHUB_USER}/{REPO_NAME} already exists")
-        run(f"git remote remove origin 2>/dev/null || true", check=False)
+        run("git remote remove origin 2>/dev/null || true", check=False)
         run(f"git remote add origin https://github.com/{GITHUB_USER}/{REPO_NAME}.git")
         ok("Remote origin updated")
     else:
@@ -149,7 +151,7 @@ def main():
         )
         if result.returncode != 0:
             warn("gh repo create had issues — trying manual approach...")
-            run(f"git remote remove origin 2>/dev/null || true", check=False)
+            run("git remote remove origin 2>/dev/null || true", check=False)
             run(
                 f'gh repo create {GITHUB_USER}/{REPO_NAME} '
                 f'--public --description "{REPO_DESC}"',
@@ -171,7 +173,7 @@ def main():
     file_count = run("git ls-files | wc -l").stdout.strip()
 
     print(f"\n{BOLD}{GREEN}{'='*52}")
-    print(f"  Repository pushed successfully!")
+    print("  Repository pushed successfully!")
     print(f"{'='*52}{RESET}")
     print(f"\n  {BOLD}URL:{RESET}       {repo_url}")
     print(f"  {BOLD}Clone:{RESET}     git clone {repo_url}.git")
@@ -179,8 +181,8 @@ def main():
     print(f"  {BOLD}Files:{RESET}     {file_count.strip()} files")
     print()
     print(f"  {BOLD}Next step — set up the self-hosted runner:{RESET}")
-    print(f"  chmod +x setup_runner.sh")
-    print(f"  ./setup_runner.sh")
+    print("  chmod +x setup_runner.sh")
+    print("  ./setup_runner.sh")
     print()
 
     info("Opening repository in browser...")
