@@ -52,15 +52,28 @@ jobs:
             -n ai-log-analyzer 2>/dev/null || true
           sleep 5
 
-      - name: Log in to image registry
+      - name: Check CRC & set kubeconfig
         run: |
-          # Remove stale cert dir that causes permission denied errors
-          sudo rm -rf /etc/docker/certs.d/default-route-openshift-image-registry.apps-crc.testing 2>/dev/null || true
+          STATUS=$(crc status 2>/dev/null | grep "CRC VM" | awk '{print $3}')
+          if [[ "$STATUS" != "Running" ]]; then
+            echo "CRC not running — starting..."
+            crc start
+            sleep 15
+          fi
+          echo "✓ CRC is running"
+    
+          # Verify kubeconfig exists
+          KUBECONFIG_PATH="$HOME/.crc/machines/crc/kubeconfig"
+          if [[ ! -f "$KUBECONFIG_PATH" ]]; then
+            echo "::error::Kubeconfig not found at $KUBECONFIG_PATH"
+            exit 1
+          fi
+          
+          # Set and use kubeconfig
+          export KUBECONFIG="$KUBECONFIG_PATH"
           eval $(crc oc-env)
-          TOKEN=$(oc whoami -t)
-          REGISTRY="default-route-openshift-image-registry.apps-crc.testing"
-          podman login -u kubeadmin -p "$TOKEN" "$REGISTRY" --tls-verify=false
-          echo "REGISTRY=$REGISTRY" >> $GITHUB_ENV
+          oc whoami || { echo "::error::Failed to authenticate with OpenShift"; exit 1; }
+          echo "KUBECONFIG=$KUBECONFIG_PATH" >> $GITHUB_ENV
 
       - name: Build image
         run: |
