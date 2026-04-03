@@ -54,6 +54,8 @@ jobs:
 
       - name: Log in to image registry
         run: |
+          # Remove stale cert dir that causes permission denied errors
+          sudo rm -rf /etc/docker/certs.d/default-route-openshift-image-registry.apps-crc.testing 2>/dev/null || true
           eval $(crc oc-env)
           TOKEN=$(oc whoami -t)
           REGISTRY="default-route-openshift-image-registry.apps-crc.testing"
