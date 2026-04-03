@@ -22,23 +22,23 @@ jobs:
       - name: Check Ollama
         run: |
           curl -s --connect-timeout 5 http://localhost:11434 > /dev/null \
-            || { echo "::error::Ollama not running"; exit 1; }
+            || { echo "::error::Ollama not running on port 11434"; exit 1; }
           echo "✓ Ollama running"
 
-      - name: Check CRC
+      - name: Check CRC & set kubeconfig
         run: |
-          eval $(crc oc-env) 2>/dev/null || true
           STATUS=$(crc status 2>/dev/null | grep "CRC VM" | awk '{print $3}')
-          [[ "$STATUS" == "Running" ]] || crc start
+          if [[ "$STATUS" != "Running" ]]; then
+            echo "CRC not running — starting..."
+            crc start
+            sleep 15
+          fi
+          echo "✓ CRC is running"
+          # Use CRC's built-in kubeconfig (no oc login needed)
+          export KUBECONFIG="$HOME/.crc/machines/crc/kubeconfig"
           eval $(crc oc-env)
           oc whoami
-
-      - name: Log in to OpenShift
-        run: |
-          eval $(crc oc-env)
-          PASS=$(crc console --credentials 2>/dev/null | grep kubeadmin | awk '{print $NF}')
-          oc login -u kubeadmin -p "$PASS" https://api.crc.testing:6443 \
-            --insecure-skip-tls-verify=true
+          echo "KUBECONFIG=$HOME/.crc/machines/crc/kubeconfig" >> $GITHUB_ENV
 
       - name: Ensure project exists
         run: |
@@ -58,18 +58,18 @@ jobs:
           TOKEN=$(oc whoami -t)
           REGISTRY="default-route-openshift-image-registry.apps-crc.testing"
           podman login -u kubeadmin -p "$TOKEN" "$REGISTRY" --tls-verify=false
+          echo "REGISTRY=$REGISTRY" >> $GITHUB_ENV
 
       - name: Build image
         run: |
-          REGISTRY="default-route-openshift-image-registry.apps-crc.testing"
           podman build -t ai-log-analyzer:latest .
           podman tag ai-log-analyzer:latest \
             "$REGISTRY/ai-log-analyzer/ai-log-analyzer:latest"
 
       - name: Push image
         run: |
-          REGISTRY="default-route-openshift-image-registry.apps-crc.testing"
-          podman push "$REGISTRY/ai-log-analyzer/ai-log-analyzer:latest" \
+          podman push \
+            "$REGISTRY/ai-log-analyzer/ai-log-analyzer:latest" \
             --tls-verify=false
 
       - name: Apply manifests
