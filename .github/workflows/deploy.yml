@@ -15,10 +15,6 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
 
-    env:
-      REGISTRY: default-route-openshift-image-registry.apps-crc.testing
-      IMAGE: default-route-openshift-image-registry.apps-crc.testing/ai-log-analyzer/ai-log-analyzer:latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,13 +31,33 @@ jobs:
           [[ "$STATUS" == "Running" ]] || crc start
           echo "✓ CRC running"
 
-      - name: Set kubeconfig
+      - name: Login to OpenShift and registry
         run: |
-          export KUBECONFIG="$HOME/.crc/machines/crc/kubeconfig"
-          echo "KUBECONFIG=$HOME/.crc/machines/crc/kubeconfig" >> $GITHUB_ENV
           eval $(crc oc-env)
-          oc whoami
-          echo "✓ Authenticated as $(oc whoami)"
+
+          # Get kubeadmin password from CRC's password file
+          PASS=$(cat "$HOME/.crc/machines/crc/kubeadmin-password")
+          echo "Password file read: ${#PASS} chars"
+
+          # Login to get a token-based session
+          oc login -u kubeadmin -p "$PASS" \
+            https://api.crc.testing:6443 \
+            --insecure-skip-tls-verify=true
+
+          # Now get the token for podman
+          TOKEN=$(oc whoami -t)
+          echo "Token obtained: ${#TOKEN} chars"
+
+          # Remove stale cert dir
+          sudo rm -rf /etc/docker/certs.d/default-route-openshift-image-registry.apps-crc.testing 2>/dev/null || true
+
+          # Login to registry
+          podman login \
+            -u kubeadmin \
+            -p "$TOKEN" \
+            default-route-openshift-image-registry.apps-crc.testing \
+            --tls-verify=false
+          echo "✓ Registry login successful"
 
       - name: Ensure project and registry
         run: |
@@ -54,19 +70,6 @@ jobs:
             system:image-puller system:serviceaccount:ai-log-analyzer:default \
             -n ai-log-analyzer 2>/dev/null || true
           sleep 5
-
-      - name: Login to registry
-        run: |
-          sudo rm -rf /etc/docker/certs.d/default-route-openshift-image-registry.apps-crc.testing 2>/dev/null || true
-          eval $(crc oc-env)
-          TOKEN=$(oc whoami -t)
-          echo "Token length: ${#TOKEN}"
-          podman login \
-            -u kubeadmin \
-            -p "$TOKEN" \
-            default-route-openshift-image-registry.apps-crc.testing \
-            --tls-verify=false
-          echo "✓ Registry login successful"
 
       - name: Build image
         run: |
