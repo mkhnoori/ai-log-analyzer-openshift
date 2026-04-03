@@ -31,66 +31,52 @@ jobs:
           [[ "$STATUS" == "Running" ]] || crc start
           echo "✓ CRC running"
 
-      - name: Login to OpenShift and registry
+      - name: Login to OpenShift
         run: |
           eval $(crc oc-env)
-
-          # Get kubeadmin password from CRC's password file
           PASS=$(cat "$HOME/.crc/machines/crc/kubeadmin-password")
-          echo "Password file read: ${#PASS} chars"
-
-          # Login to get a token-based session
           oc login -u kubeadmin -p "$PASS" \
             https://api.crc.testing:6443 \
             --insecure-skip-tls-verify=true
+          echo "✓ Logged in as $(oc whoami)"
 
-          # Now get the token for podman
-          TOKEN=$(oc whoami -t)
-          echo "Token obtained: ${#TOKEN} chars"
-
-          # Remove stale cert dir
-          sudo rm -rf /etc/docker/certs.d/default-route-openshift-image-registry.apps-crc.testing 2>/dev/null || true
-
-          # Login to registry
-          podman login \
-            -u kubeadmin \
-            -p "$TOKEN" \
-            default-route-openshift-image-registry.apps-crc.testing \
-            --tls-verify=false
-          echo "✓ Registry login successful"
-
-      - name: Ensure project and registry
+      - name: Ensure project exists
         run: |
           eval $(crc oc-env)
           oc get project ai-log-analyzer &>/dev/null || oc new-project ai-log-analyzer
           oc project ai-log-analyzer
-          oc patch configs.imageregistry.operator.openshift.io/cluster \
-            --patch='{"spec":{"defaultRoute":true}}' --type=merge 2>/dev/null || true
           oc policy add-role-to-user \
             system:image-puller system:serviceaccount:ai-log-analyzer:default \
             -n ai-log-analyzer 2>/dev/null || true
-          sleep 5
 
-      - name: Build image
+      - name: Build image inside OpenShift
         run: |
-          podman build -t ai-log-analyzer:latest .
-          podman tag ai-log-analyzer:latest \
-            default-route-openshift-image-registry.apps-crc.testing/ai-log-analyzer/ai-log-analyzer:latest
-          echo "✓ Build complete"
-
-      - name: Push image
-        run: |
-          podman push \
-            default-route-openshift-image-registry.apps-crc.testing/ai-log-analyzer/ai-log-analyzer:latest \
-            --tls-verify=false
-          echo "✓ Push complete"
+          eval $(crc oc-env)
+          # Create or update the BuildConfig
+          oc get buildconfig ai-log-analyzer -n ai-log-analyzer &>/dev/null || \
+            oc new-build \
+              --name=ai-log-analyzer \
+              --binary \
+              --strategy=docker \
+              --to=ai-log-analyzer:latest \
+              -n ai-log-analyzer
+          # Stream source code into the build
+          oc start-build ai-log-analyzer \
+            --from-dir=. \
+            --follow \
+            --wait \
+            -n ai-log-analyzer
+          echo "✓ Image built and pushed to internal registry"
 
       - name: Apply manifests
         run: |
           eval $(crc oc-env)
           oc apply -f openshift/configmap.yaml
           oc apply -f openshift/pvc.yaml
-          oc apply -f openshift/deployment.yaml
+          # Patch deployment to use ImageStreamTag instead of external registry
+          cat openshift/deployment.yaml | \
+            sed 's|image-registry.openshift-image-registry.svc:5000/ai-log-analyzer/ai-log-analyzer:latest|image-registry.openshift-image-registry.svc:5000/ai-log-analyzer/ai-log-analyzer:latest|' | \
+            oc apply -f -
           oc apply -f openshift/service.yaml
           oc apply -f openshift/route.yaml
           echo "✓ Manifests applied"
@@ -106,7 +92,8 @@ jobs:
           eval $(crc oc-env)
           HOST=$(oc get route ai-log-analyzer -n ai-log-analyzer -o jsonpath='{.spec.host}')
           sleep 10
-          curl -sk "https://$HOST/health" | python3 -c "import sys,json; print(json.load(sys.stdin))"
+          STATUS=$(curl -sk "https://$HOST/health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unreachable")
+          echo "Health: $STATUS"
           echo "App URL: https://$HOST"
 
       - name: Summary
@@ -114,3 +101,4 @@ jobs:
         run: |
           eval $(crc oc-env) 2>/dev/null || true
           oc get pods -n ai-log-analyzer 2>/dev/null || true
+          oc get route ai-log-analyzer -n ai-log-analyzer 2>/dev/null || true
