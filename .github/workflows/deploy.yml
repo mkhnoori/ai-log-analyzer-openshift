@@ -1,0 +1,101 @@
+name: CD — Deploy to OpenShift Local
+
+on:
+  workflow_run:
+    workflows: ["CI — Test & Lint"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build, push & deploy
+    runs-on: self-hosted
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Ollama
+        run: |
+          curl -s --connect-timeout 5 http://localhost:11434 > /dev/null \
+            || { echo "::error::Ollama not running"; exit 1; }
+          echo "✓ Ollama running"
+
+      - name: Check CRC
+        run: |
+          eval $(crc oc-env) 2>/dev/null || true
+          STATUS=$(crc status 2>/dev/null | grep "CRC VM" | awk '{print $3}')
+          [[ "$STATUS" == "Running" ]] || crc start
+          eval $(crc oc-env)
+          oc whoami
+
+      - name: Log in to OpenShift
+        run: |
+          eval $(crc oc-env)
+          PASS=$(crc console --credentials 2>/dev/null | grep kubeadmin | awk '{print $NF}')
+          oc login -u kubeadmin -p "$PASS" https://api.crc.testing:6443 \
+            --insecure-skip-tls-verify=true
+
+      - name: Ensure project exists
+        run: |
+          eval $(crc oc-env)
+          oc get project ai-log-analyzer &>/dev/null || oc new-project ai-log-analyzer
+          oc project ai-log-analyzer
+          oc patch configs.imageregistry.operator.openshift.io/cluster \
+            --patch='{"spec":{"defaultRoute":true}}' --type=merge 2>/dev/null || true
+          oc policy add-role-to-user \
+            system:image-puller system:serviceaccount:ai-log-analyzer:default \
+            -n ai-log-analyzer 2>/dev/null || true
+          sleep 5
+
+      - name: Log in to image registry
+        run: |
+          eval $(crc oc-env)
+          TOKEN=$(oc whoami -t)
+          REGISTRY="default-route-openshift-image-registry.apps-crc.testing"
+          podman login -u kubeadmin -p "$TOKEN" "$REGISTRY" --tls-verify=false
+
+      - name: Build image
+        run: |
+          REGISTRY="default-route-openshift-image-registry.apps-crc.testing"
+          podman build -t ai-log-analyzer:latest .
+          podman tag ai-log-analyzer:latest \
+            "$REGISTRY/ai-log-analyzer/ai-log-analyzer:latest"
+
+      - name: Push image
+        run: |
+          REGISTRY="default-route-openshift-image-registry.apps-crc.testing"
+          podman push "$REGISTRY/ai-log-analyzer/ai-log-analyzer:latest" \
+            --tls-verify=false
+
+      - name: Apply manifests
+        run: |
+          eval $(crc oc-env)
+          oc apply -f openshift/configmap.yaml
+          oc apply -f openshift/pvc.yaml
+          oc apply -f openshift/deployment.yaml
+          oc apply -f openshift/service.yaml
+          oc apply -f openshift/route.yaml
+
+      - name: Wait for rollout
+        run: |
+          eval $(crc oc-env)
+          oc rollout restart deployment/ai-log-analyzer -n ai-log-analyzer
+          oc rollout status deployment/ai-log-analyzer -n ai-log-analyzer --timeout=300s
+
+      - name: Health check & summary
+        run: |
+          eval $(crc oc-env)
+          HOST=$(oc get route ai-log-analyzer -n ai-log-analyzer \
+            -o jsonpath='{.spec.host}')
+          sleep 5
+          STATUS=$(curl -sk "https://$HOST/health" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('status'))" \
+            2>/dev/null || echo "unreachable")
+          echo "Health: $STATUS"
+          echo "App URL: https://$HOST"
+          oc get pods -n ai-log-analyzer
