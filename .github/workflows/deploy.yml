@@ -15,6 +15,10 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
 
+    env:
+      REGISTRY: default-route-openshift-image-registry.apps-crc.testing
+      IMAGE: default-route-openshift-image-registry.apps-crc.testing/ai-log-analyzer/ai-log-analyzer:latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,25 +26,24 @@ jobs:
       - name: Check Ollama
         run: |
           curl -s --connect-timeout 5 http://localhost:11434 > /dev/null \
-            || { echo "::error::Ollama not running on port 11434"; exit 1; }
+            || { echo "::error::Ollama not running"; exit 1; }
           echo "✓ Ollama running"
 
-      - name: Check CRC & set kubeconfig
+      - name: Start CRC if needed
         run: |
           STATUS=$(crc status 2>/dev/null | grep "CRC VM" | awk '{print $3}')
-          if [[ "$STATUS" != "Running" ]]; then
-            echo "CRC not running — starting..."
-            crc start
-            sleep 15
-          fi
-          echo "✓ CRC is running"
-          # Use CRC's built-in kubeconfig (no oc login needed)
+          [[ "$STATUS" == "Running" ]] || crc start
+          echo "✓ CRC running"
+
+      - name: Set kubeconfig
+        run: |
           export KUBECONFIG="$HOME/.crc/machines/crc/kubeconfig"
+          echo "KUBECONFIG=$HOME/.crc/machines/crc/kubeconfig" >> $GITHUB_ENV
           eval $(crc oc-env)
           oc whoami
-          echo "KUBECONFIG=$HOME/.crc/machines/crc/kubeconfig" >> $GITHUB_ENV
+          echo "✓ Authenticated as $(oc whoami)"
 
-      - name: Ensure project exists
+      - name: Ensure project and registry
         run: |
           eval $(crc oc-env)
           oc get project ai-log-analyzer &>/dev/null || oc new-project ai-log-analyzer
@@ -52,40 +55,32 @@ jobs:
             -n ai-log-analyzer 2>/dev/null || true
           sleep 5
 
-      - name: Check CRC & set kubeconfig
+      - name: Login to registry
         run: |
-          STATUS=$(crc status 2>/dev/null | grep "CRC VM" | awk '{print $3}')
-          if [[ "$STATUS" != "Running" ]]; then
-            echo "CRC not running — starting..."
-            crc start
-            sleep 15
-          fi
-          echo "✓ CRC is running"
-    
-          # Verify kubeconfig exists
-          KUBECONFIG_PATH="$HOME/.crc/machines/crc/kubeconfig"
-          if [[ ! -f "$KUBECONFIG_PATH" ]]; then
-            echo "::error::Kubeconfig not found at $KUBECONFIG_PATH"
-            exit 1
-          fi
-          
-          # Set and use kubeconfig
-          export KUBECONFIG="$KUBECONFIG_PATH"
+          sudo rm -rf /etc/docker/certs.d/default-route-openshift-image-registry.apps-crc.testing 2>/dev/null || true
           eval $(crc oc-env)
-          oc whoami || { echo "::error::Failed to authenticate with OpenShift"; exit 1; }
-          echo "KUBECONFIG=$KUBECONFIG_PATH" >> $GITHUB_ENV
+          TOKEN=$(oc whoami -t)
+          echo "Token length: ${#TOKEN}"
+          podman login \
+            -u kubeadmin \
+            -p "$TOKEN" \
+            default-route-openshift-image-registry.apps-crc.testing \
+            --tls-verify=false
+          echo "✓ Registry login successful"
 
       - name: Build image
         run: |
           podman build -t ai-log-analyzer:latest .
           podman tag ai-log-analyzer:latest \
-            "$REGISTRY/ai-log-analyzer/ai-log-analyzer:latest"
+            default-route-openshift-image-registry.apps-crc.testing/ai-log-analyzer/ai-log-analyzer:latest
+          echo "✓ Build complete"
 
       - name: Push image
         run: |
           podman push \
-            "$REGISTRY/ai-log-analyzer/ai-log-analyzer:latest" \
+            default-route-openshift-image-registry.apps-crc.testing/ai-log-analyzer/ai-log-analyzer:latest \
             --tls-verify=false
+          echo "✓ Push complete"
 
       - name: Apply manifests
         run: |
@@ -95,22 +90,24 @@ jobs:
           oc apply -f openshift/deployment.yaml
           oc apply -f openshift/service.yaml
           oc apply -f openshift/route.yaml
+          echo "✓ Manifests applied"
 
-      - name: Wait for rollout
+      - name: Rollout
         run: |
           eval $(crc oc-env)
           oc rollout restart deployment/ai-log-analyzer -n ai-log-analyzer
           oc rollout status deployment/ai-log-analyzer -n ai-log-analyzer --timeout=300s
 
-      - name: Health check & summary
+      - name: Health check
         run: |
           eval $(crc oc-env)
-          HOST=$(oc get route ai-log-analyzer -n ai-log-analyzer \
-            -o jsonpath='{.spec.host}')
-          sleep 5
-          STATUS=$(curl -sk "https://$HOST/health" \
-            | python3 -c "import sys,json; print(json.load(sys.stdin).get('status'))" \
-            2>/dev/null || echo "unreachable")
-          echo "Health: $STATUS"
+          HOST=$(oc get route ai-log-analyzer -n ai-log-analyzer -o jsonpath='{.spec.host}')
+          sleep 10
+          curl -sk "https://$HOST/health" | python3 -c "import sys,json; print(json.load(sys.stdin))"
           echo "App URL: https://$HOST"
-          oc get pods -n ai-log-analyzer
+
+      - name: Summary
+        if: always()
+        run: |
+          eval $(crc oc-env) 2>/dev/null || true
+          oc get pods -n ai-log-analyzer 2>/dev/null || true
