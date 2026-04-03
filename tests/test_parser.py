@@ -38,7 +38,7 @@ class TestChunking:
         assert len(ids) == len(set(ids))
 
     def test_noise_lines_are_stripped(self, parser):
-        raw = "real error line\n" + ("=" * 40) + "\nDownloading [====>  ] 50%\nanother real line"
+        raw = "real error line\n" + ("=" * 40) + "\nDownloading torch [50%]\nanother real line"
         entry = make_entry(raw)
         chunks = parser.chunk_log(entry)
         full = " ".join(c.content for c in chunks)
