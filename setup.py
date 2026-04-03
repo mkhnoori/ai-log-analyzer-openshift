@@ -187,14 +187,14 @@ def pull_models():
         print(f"\n  Pulling {clr(model_tag, CYAN)} — {description}")
         print(f"  {DIM}This may take several minutes depending on your connection...{RESET}")
         try:
-            result = subprocess.run(
+            subprocess.run(
                 ["ollama", "pull", model_tag],
                 capture_output=False,
                 text=True,
                 check=True,
             )
             ok(f"Downloaded: {model_tag}")
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             fail(f"Failed to pull model {model_tag}.\n  Try manually: ollama pull {model_tag}")
 
 
@@ -231,7 +231,7 @@ def install_deps(pip: str):
 
     print(f"  {DIM}Installing packages from requirements.txt...{RESET}")
     try:
-        result = subprocess.run(
+        subprocess.run(
             [pip, "install", "-r", "requirements.txt"],
             capture_output=False,
             text=True,
@@ -327,7 +327,7 @@ def print_start_instructions():
 
 
 def _start_server():
-    venv_python = Path("venv") / "bin" / "python"
+    _ = Path("venv") / "bin" / "python"
     venv_uvicorn = Path("venv") / "bin" / "uvicorn"
 
     if not venv_uvicorn.exists():

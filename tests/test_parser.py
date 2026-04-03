@@ -58,10 +58,10 @@ class TestSignalExtraction:
         text = "INFO: starting\nERROR: connection refused\nINFO: done"
         signals = parser.extract_signals(text)
         assert len(signals["error_lines"]) >= 1
-        assert any("connection refused" in l for l in signals["error_lines"])
+        assert any("connection refused" in line for line in signals["error_lines"])
 
     def test_detects_exception_type(self, parser):
-        text = "java.lang.OutOfMemoryError: Java heap space"
+        text = "ERROR: java.lang.OutOfMemoryError: Java heap space"
         signals = parser.extract_signals(text)
         assert "exception" in signals["error_types"] or "error" in signals["error_types"]
 

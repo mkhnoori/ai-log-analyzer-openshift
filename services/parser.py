@@ -62,10 +62,10 @@ class LogParser:
                     content=text, token_count=cur_tok, chunk_index=idx,
                 ))
                 overlap, ov_tok = [], 0
-                for l in reversed(current):
-                    t = self._count_tokens(l)
+                for line in reversed(current):
+                    t = self._count_tokens(line)
                     if ov_tok + t <= self.chunk_overlap:
-                        overlap.insert(0, l)
+                        overlap.insert(0, line)
                         ov_tok += t
                     else:
                         break
