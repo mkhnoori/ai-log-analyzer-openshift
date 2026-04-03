@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-log-analyzer
+  namespace: ai-log-analyzer
+  labels:
+    app: ai-log-analyzer
+    version: "1.0.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-log-analyzer
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: ai-log-analyzer
+        version: "1.0.0"
+    spec:
+      # OpenShift security context — runs as non-root
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: ai-log-analyzer
+          # Internal registry image — update tag after each docker push
+          image: image-registry.openshift-image-registry.svc:5000/ai-log-analyzer/ai-log-analyzer:latest
+          imagePullPolicy: Always
+
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          # Load all config from the ConfigMap
+          envFrom:
+            - configMapRef:
+                name: ai-log-analyzer-config
+
+          # Resource limits — generous for LLM workloads
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+
+          # Security context for the container
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+          # Startup probe — gives the app 5 minutes to seed the knowledge base
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 10
+
+          # Liveness probe — restart if unhealthy
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          # Readiness probe — remove from service if not ready
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Mount persistent storage for ChromaDB
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ai-log-analyzer-data
+
+      # Restart policy
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

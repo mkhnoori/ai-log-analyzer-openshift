@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Log Analyzer</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+       background: #f5f5f7; color: #1d1d1f; min-height: 100vh; }
+header { background: #1d1d1f; color: #fff; padding: 14px 28px;
+         display: flex; align-items: center; gap: 12px; }
+header h1 { font-size: 16px; font-weight: 500; }
+header .hstatus { font-size: 11px; color: #888; margin-left: auto; }
+
+/* tabs */
+.tabs { display: flex; gap: 0; background: #fff; border-bottom: 1px solid #e5e5e5;
+        padding: 0 28px; }
+.tab { padding: 11px 18px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent;
+       color: #888; user-select: none; transition: all .2s; }
+.tab.on { color: #0071e3; border-bottom-color: #0071e3; font-weight: 500; }
+.tab:hover:not(.on) { color: #555; }
+
+/* pages */
+.page { display: none; max-width: 1400px; margin: 20px auto; padding: 0 24px; }
+.page.on { display: block; }
+
+/* grid */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media(max-width:900px){ .grid2 { grid-template-columns: 1fr; } }
+
+/* cards */
+.card { background: #fff; border-radius: 12px; padding: 20px; border: 1px solid #e5e5e5; }
+.card-title { font-size: 12px; font-weight: 600; color: #777; text-transform: uppercase;
+              letter-spacing: .07em; margin-bottom: 14px; }
+
+/* form fields */
+.field { margin-bottom: 11px; }
+.field label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 500; }
+.field input, .field select {
+  width: 100%; padding: 8px 10px; border: 1px solid #ddd;
+  border-radius: 8px; font-size: 13px; font-family: inherit; background: #fafafa; }
+.field textarea {
+  width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px;
+  font-family: "SF Mono", monospace; font-size: 12px; resize: vertical;
+  background: #fafafa; line-height: 1.5; }
+.btn { width: 100%; padding: 11px; background: #0071e3; color: #fff; border: none;
+       border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .2s; }
+.btn:hover { background: #005bbf; }
+.btn:disabled { background: #aaa; cursor: not-allowed; }
+.btn-sm { padding: 6px 14px; font-size: 13px; width: auto; }
+.btn-outline { background: transparent; color: #0071e3; border: 1px solid #0071e3; }
+.btn-outline:hover { background: #f0f7ff; }
+.btn-green { background: #16a34a; }
+.btn-green:hover { background: #15803d; }
+.btn-red { background: #dc2626; }
+.btn-red:hover { background: #b91c1c; }
+
+/* severity */
+.sev { display: inline-block; padding: 2px 9px; border-radius: 20px;
+       font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.sev-low      { background: #d1fae5; color: #065f46; }
+.sev-medium   { background: #fef3c7; color: #92400e; }
+.sev-high     { background: #fee2e2; color: #991b1b; }
+.sev-critical { background: #1d1d1f; color: #fff; }
+
+/* result sections */
+.section { margin-top: 14px; }
+.sec-title { font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase;
+             letter-spacing: .07em; margin-bottom: 7px; display: flex; align-items: center; gap: 6px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.root-cause { font-size: 15px; font-weight: 500; margin: 8px 0 4px; line-height: 1.4; }
+.meter { background: #e5e5e5; border-radius: 4px; height: 5px; margin: 5px 0 2px; overflow: hidden; }
+.meter-fill { height: 100%; border-radius: 4px; transition: width .5s; }
+.fix-summary { font-size: 13px; color: #444; background: #f0f7ff;
+               border-left: 3px solid #0071e3; padding: 9px 12px;
+               border-radius: 0 8px 8px 0; margin-bottom: 8px; line-height: 1.6; }
+.steps { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.step { display: flex; gap: 10px; align-items: flex-start;
+        background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 9px 11px; }
+.step-n { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+          background: #16a34a; color: #fff; font-size: 11px; font-weight: 700;
+          display: flex; align-items: center; justify-content: center; }
+.step-t { font-size: 13px; color: #1d1d1f; line-height: 1.5; flex: 1; }
+.cmd { font-family: "SF Mono", monospace; font-size: 11.5px; background: #1d1d1f;
+       color: #86efac; padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+.chain { list-style: none; }
+.chain li { font-size: 13px; color: #555; padding: 3px 0 3px 18px; position: relative; }
+.chain li::before { content: "→"; position: absolute; left: 0; color: #0071e3; font-weight: 700; }
+.evidence { font-family: "SF Mono", monospace; font-size: 11px; background: #1d1d1f;
+            color: #a8ff78; padding: 9px 11px; border-radius: 8px; white-space: pre-wrap;
+            word-break: break-all; margin: 3px 0; max-height: 90px; overflow-y: auto; }
+.prevention { font-size: 12px; color: #92400e; background: #fffbeb;
+              border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 11px; line-height: 1.55; }
+.similar-card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 9px 11px; margin: 4px 0; }
+.sim-badge { display: inline-block; background: #f0f0f0; border-radius: 4px;
+             padding: 1px 6px; font-size: 11px; color: #555; margin-left: 5px; }
+
+/* ── feedback panel ── */
+.fb-panel { margin-top: 16px; border: 1px solid #e5e5e5; border-radius: 10px;
+            padding: 16px; background: #fafafa; }
+.fb-title { font-size: 13px; font-weight: 500; margin-bottom: 12px; color: #333; }
+.stars { display: flex; gap: 4px; margin-bottom: 10px; }
+.star { font-size: 22px; cursor: pointer; color: #ddd; transition: color .1s; user-select: none; }
+.star.on { color: #f59e0b; }
+.fb-worked-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.fb-worked-row button { flex: 1; padding: 8px; border-radius: 8px; border: 1px solid #ddd;
+                        font-size: 13px; cursor: pointer; background: #fff; transition: all .15s; }
+.fb-worked-row button.sel-yes { background: #f0fdf4; border-color: #16a34a; color: #15803d; font-weight: 500; }
+.fb-worked-row button.sel-no  { background: #fef2f2; border-color: #dc2626; color: #b91c1c; font-weight: 500; }
+.fb-correction { display: none; margin-top: 8px; }
+.fb-sent { text-align: center; padding: 16px 0; color: #16a34a; font-size: 13px; font-weight: 500; }
+.fb-sent .fb-msg { font-size: 12px; color: #555; font-weight: 400; margin-top: 4px; }
+
+/* ── learn stats page ── */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat-box { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px;
+            padding: 14px 16px; text-align: center; }
+.stat-val { font-size: 28px; font-weight: 600; color: #0071e3; line-height: 1; }
+.stat-lbl { font-size: 11px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: .05em; }
+.learned-item { display: flex; gap: 10px; align-items: flex-start;
+                padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+.learned-item:last-child { border-bottom: none; }
+.learned-badge { flex-shrink: 0; padding: 2px 7px; border-radius: 6px; font-size: 10px;
+                 font-weight: 600; background: #d1fae5; color: #065f46; text-transform: uppercase; }
+.progress-bar { background: #e5e5e5; border-radius: 4px; height: 6px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 4px; background: #0071e3; }
+.empty-state { text-align: center; padding: 40px 20px; color: #aaa; font-size: 14px; }
+
+.spinner { display: none; text-align: center; padding: 30px; color: #888; font-size: 14px; }
+.spinner.show { display: block; }
+.result { display: none; }
+.result.show { display: block; }
+.error-box { color: #cc0000; font-size: 13px; padding: 10px; background: #fff0f0;
+             border-radius: 8px; margin: 10px 0; line-height: 1.6; }
+.smpl { font-size: 11px; padding: 4px 10px; border: 1px solid #ddd;
+        border-radius: 6px; background: #fafafa; cursor: pointer; }
+.smpl:hover { background: #f0f0f0; }
+.meta { font-size: 12px; color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+    <rect width="20" height="20" rx="5" fill="#0071e3"/>
+    <path d="M5 10h10M10 5l5 5-5 5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <h1>AI Log Analyzer</h1>
+  <span class="hstatus" id="hstatus">checking...</span>
+</header>
+
+<div class="tabs">
+  <div class="tab on" onclick="showTab('analyze')">Analyze</div>
+  <div class="tab" onclick="showTab('learn')">Learning stats</div>
+</div>
+
+<!-- ═══════════════ ANALYZE TAB ═══════════════ -->
+<div class="page on" id="tab-analyze">
+<div class="grid2">
+
+  <!-- input -->
+  <div class="card">
+    <div class="card-title">Analyze a log</div>
+    <div class="field">
+      <label>Source system</label>
+      <select id="source">
+        <option value="jenkins">Jenkins</option>
+        <option value="gitlab">GitLab CI/CD</option>
+        <option value="github_actions">GitHub Actions</option>
+        <option value="circleci">CircleCI</option>
+        <option value="kubernetes">Kubernetes</option>
+        <option value="custom">Custom / Other</option>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field">
+        <label>Build ID</label>
+        <input id="build_id" type="text" placeholder="build-1234">
+      </div>
+      <div class="field">
+        <label>Exit code</label>
+        <input id="exit_code" type="number" placeholder="1">
+      </div>
+    </div>
+    <div class="field">
+      <label>Step name</label>
+      <input id="step_name" type="text" placeholder="npm install">
+    </div>
+    <div class="field">
+      <label>Log output</label>
+      <textarea id="log_input" rows="14" placeholder="Paste your CI/CD or build log here..."></textarea>
+    </div>
+    <button class="btn" id="analyze_btn" onclick="doAnalyze()">Analyze log</button>
+    <div style="margin-top:12px;border-top:1px solid #eee;padding-top:12px">
+      <p style="font-size:11px;color:#aaa;margin-bottom:7px">Samples:</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="smpl" onclick="loadS('npm')">npm conflict</button>
+        <button class="smpl" onclick="loadS('oom')">Java OOM</button>
+        <button class="smpl" onclick="loadS('docker')">Docker auth</button>
+        <button class="smpl" onclick="loadS('test')">Test failure</button>
+        <button class="smpl" onclick="loadS('db')">DB connection</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- results -->
+  <div>
+    <div class="spinner" id="spinner">Analyzing — this takes 10–20 s on first run...</div>
+
+    <div class="card result" id="result_card">
+      <div class="card-title">Analysis result</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="sev" id="r_sev"></span>
+        <span class="meta" id="r_time"></span>
+      </div>
+      <div class="root-cause" id="r_root"></div>
+      <div class="meta">Confidence</div>
+      <div class="meter"><div class="meter-fill" id="r_meter"></div></div>
+      <div class="meta" id="r_conf" style="margin-bottom:2px"></div>
+
+      <div class="section" id="fix_sec">
+        <div class="sec-title"><div class="dot" style="background:#16a34a"></div>How to fix</div>
+        <div class="fix-summary" id="r_fix"></div>
+        <ol class="steps" id="r_steps"></ol>
+      </div>
+
+      <div class="section" id="chain_sec" style="display:none">
+        <div class="sec-title"><div class="dot" style="background:#0071e3"></div>Causal chain</div>
+        <ul class="chain" id="r_chain"></ul>
+      </div>
+
+      <div class="section" id="ev_sec" style="display:none">
+        <div class="sec-title"><div class="dot" style="background:#7c3aed"></div>Evidence</div>
+        <div id="r_ev"></div>
+      </div>
+
+      <div class="section" id="prev_sec" style="display:none">
+        <div class="sec-title"><div class="dot" style="background:#d97706"></div>Prevention</div>
+        <div class="prevention" id="r_prev"></div>
+      </div>
+
+      <div class="section" id="sim_sec" style="display:none">
+        <div class="sec-title"><div class="dot" style="background:#888"></div>Similar past incidents</div>
+        <div id="r_sim"></div>
+      </div>
+
+      <!-- ── Feedback panel ── -->
+      <div class="fb-panel" id="fb_panel">
+        <div class="fb-title">Did this fix work? Help the model learn.</div>
+        <div class="fb-worked-row">
+          <button id="btn_yes" onclick="setWorked(true)">✓ Yes, it worked</button>
+          <button id="btn_no"  onclick="setWorked(false)">✗ No, it didn't</button>
+        </div>
+        <div class="fb-correction" id="fb_correction">
+          <div class="field" style="margin-bottom:7px">
+            <label>What was the actual root cause? (optional correction)</label>
+            <input id="fb_correct_cause" type="text" placeholder="e.g. Missing env var JWT_SECRET">
+          </div>
+        </div>
+        <div class="stars" id="stars">
+          <span style="font-size:12px;color:#888;line-height:22px;margin-right:4px">Rate accuracy:</span>
+          <span class="star" onclick="setStar(1)">★</span>
+          <span class="star" onclick="setStar(2)">★</span>
+          <span class="star" onclick="setStar(3)">★</span>
+          <span class="star" onclick="setStar(4)">★</span>
+          <span class="star" onclick="setStar(5)">★</span>
+        </div>
+        <div class="field" style="margin-bottom:10px">
+          <label>Notes (optional)</label>
+          <input id="fb_notes" type="text" placeholder="Any additional context...">
+        </div>
+        <button class="btn btn-sm" id="fb_submit_btn" onclick="submitFeedback()" disabled>Submit feedback</button>
+        <div class="fb-sent" id="fb_sent" style="display:none">
+          <div>✓ Feedback received!</div>
+          <div class="fb-msg" id="fb_sent_msg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════ LEARN TAB ═══════════════ -->
+<div class="page" id="tab-learn">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <h2 style="font-size:15px;font-weight:500">What the model has learned</h2>
+    <button class="btn btn-sm btn-outline" onclick="loadStats()">Refresh</button>
+  </div>
+  <div id="stats_content"><div class="empty-state">Loading...</div></div>
+</div>
+
+<script>
+/* ── samples ── */
+const SAMPLES = {
+  npm:{source:'jenkins',build_id:'build-442',step:'npm install',exit:1,log:`Running npm install...
+npm ERR! code ERESOLVE
+npm ERR! ERESOLVE unable to resolve dependency tree
+npm ERR! Found: react@18.2.0
+npm ERR! Could not resolve dependency:
+npm ERR! peer react@"^17.0.0" from react-beautiful-dnd@13.1.1
+ERROR: Job failed: exit code 1`},
+  oom:{source:'jenkins',build_id:'build-881',step:'mvn package',exit:137,log:`[ERROR] COMPILATION ERROR :
+[ERROR] java.lang.OutOfMemoryError: Java heap space
+\tat java.base/java.util.Arrays.copyOf(Arrays.java:3236)
+Killed
+Error: Process completed with exit code 137.`},
+  docker:{source:'gitlab',build_id:'pipeline-1029',step:'docker push',exit:1,log:`$ docker push myregistry.io/backend:v2.1.4
+Error response from daemon: pull access denied for myregistry.io/backend,
+repository does not exist or may require 'docker login':
+denied: requested access to the resource is denied
+ERROR: Job failed: exit code 1`},
+  test:{source:'github_actions',build_id:'run-5512',step:'pytest',exit:1,log:`collected 47 items
+tests/test_auth.py::test_login_valid_user FAILED
+FAILED tests/test_auth.py::test_login_valid_user - AssertionError: assert 401 == 200
+FAILED tests/test_api.py::test_create_user - AssertionError: assert 500 == 201
+3 failed, 44 passed in 12.34s
+Error: Process completed with exit code 1`},
+  db:{source:'kubernetes',build_id:'deploy-v3.2',step:'app startup',exit:1,log:`ERROR: could not connect to server: Connection refused
+Is the server running on host "db-service" (10.96.0.15) port 5432?
+Retry 10/10 — giving up after 50s
+FATAL: Could not establish database connection after 10 retries
+Error: Container exited with code 1`},
+};
+
+function loadS(k){
+  const s=SAMPLES[k];
+  document.getElementById('source').value=s.source;
+  document.getElementById('build_id').value=s.build_id;
+  document.getElementById('step_name').value=s.step;
+  document.getElementById('exit_code').value=s.exit;
+  document.getElementById('log_input').value=s.log;
+}
+
+/* ── tabs ── */
+function showTab(t){
+  document.querySelectorAll('.tab').forEach((el,i)=>{
+    el.classList.toggle('on', ['analyze','learn'][i]===t);
+  });
+  document.getElementById('tab-analyze').classList.toggle('on',t==='analyze');
+  document.getElementById('tab-learn').classList.toggle('on',t==='learn');
+  if(t==='learn') loadStats();
+}
+
+/* ── state ── */
+let currentIncidentId=null, workedVal=null, starVal=0;
+
+function meterColor(c){ return c>=.8?'#22c55e':c>=.6?'#f59e0b':'#ef4444'; }
+
+function fmtStep(t){
+  return t.replace(/(Run:|Execute:|Command:|Type:|Enter:)\s*(`[^`]+`|[a-z][\w\-\.\/ \$\{\}"\'=@:]+)/gi,
+    (_,p,c)=>`${p} <span class="cmd">${c.replace(/`/g,'')}</span>`)
+   .replace(/`([^`]+)`/g,'<span class="cmd">$1</span>');
+}
+
+function show(id){ document.getElementById(id).style.display='block'; }
+function hide(id){ document.getElementById(id).style.display='none'; }
+
+/* ── analyze ── */
+async function doAnalyze(){
+  const log=document.getElementById('log_input').value.trim();
+  if(!log){alert('Please paste a log first');return;}
+  document.getElementById('analyze_btn').disabled=true;
+  document.getElementById('spinner').classList.add('show');
+  document.getElementById('result_card').classList.remove('show');
+  resetFeedback();
+
+  const ec=document.getElementById('exit_code').value;
+  const body={log_entry:{
+    source:document.getElementById('source').value,
+    build_id:document.getElementById('build_id').value||null,
+    step_name:document.getElementById('step_name').value||null,
+    exit_code:ec?parseInt(ec):null,
+    raw_log:log,
+  }};
+
+  try{
+    const r=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+    renderResult(await r.json());
+  }catch(e){
+    const rc=document.getElementById('result_card');
+    rc.innerHTML=`<div class="error-box"><strong>Error:</strong> ${e.message}</div>`;
+    rc.classList.add('show');
+  }finally{
+    document.getElementById('analyze_btn').disabled=false;
+    document.getElementById('spinner').classList.remove('show');
+  }
+}
+
+function renderResult(d){
+  currentIncidentId=d.incident_id||null;
+  const sev=d.severity||'medium';
+  document.getElementById('r_sev').textContent=sev;
+  document.getElementById('r_sev').className=`sev sev-${sev}`;
+  document.getElementById('r_time').textContent=`${d.analysis_time_ms}ms`;
+  document.getElementById('r_root').textContent=d.root_cause;
+  const c=d.confidence;
+  document.getElementById('r_meter').style.width=(c*100)+'%';
+  document.getElementById('r_meter').style.background=meterColor(c);
+  document.getElementById('r_conf').textContent=`${Math.round(c*100)}% confidence`;
+
+  document.getElementById('r_fix').textContent=d.fix_suggestion||'';
+  const steps=d.fix_steps||[];
+  if(steps.length){
+    document.getElementById('r_steps').innerHTML=steps.map((s,i)=>
+      `<li class="step"><div class="step-n">${i+1}</div><div class="step-t">${fmtStep(s)}</div></li>`
+    ).join('');
+    show('fix_sec');
+  }else hide('fix_sec');
+
+  const chain=d.causal_chain||[];
+  if(chain.length){document.getElementById('r_chain').innerHTML=chain.map(s=>`<li>${s}</li>`).join('');show('chain_sec');}
+  else hide('chain_sec');
+
+  const ev=d.evidence_steps||[];
+  if(ev.length){document.getElementById('r_ev').innerHTML=ev.map(e=>`<div class="evidence">${e}</div>`).join('');show('ev_sec');}
+  else hide('ev_sec');
+
+  if(d.prevention){document.getElementById('r_prev').textContent=d.prevention;show('prev_sec');}
+  else hide('prev_sec');
+
+  const sim=d.similar_incidents||[];
+  if(sim.length){
+    document.getElementById('r_sim').innerHTML=sim.map(i=>
+      `<div class="similar-card">
+        <div style="font-size:12px;font-weight:500">${i.root_cause}<span class="sim-badge">${Math.round(i.similarity_score*100)}% match</span></div>
+        <div style="font-size:12px;color:#555;margin-top:3px">${i.fix_applied}</div>
+      </div>`).join('');
+    show('sim_sec');
+  }else hide('sim_sec');
+
+  // Show feedback panel
+  hide('fb_sent');
+  show('fb_panel');
+  document.getElementById('result_card').classList.add('show');
+}
+
+/* ── feedback ── */
+function resetFeedback(){
+  workedVal=null; starVal=0;
+  document.getElementById('btn_yes').className='';
+  document.getElementById('btn_no').className='';
+  document.querySelectorAll('.star').forEach(s=>s.classList.remove('on'));
+  document.getElementById('fb_correction').style.display='none';
+  document.getElementById('fb_correct_cause').value='';
+  document.getElementById('fb_notes').value='';
+  document.getElementById('fb_submit_btn').disabled=true;
+  hide('fb_sent');
+}
+
+function setWorked(v){
+  workedVal=v;
+  document.getElementById('btn_yes').className=v?'sel-yes':'';
+  document.getElementById('btn_no').className=v?'':'sel-no';
+  document.getElementById('fb_correction').style.display=v?'none':'block';
+  checkFbReady();
+}
+
+function setStar(n){
+  starVal=n;
+  document.querySelectorAll('.star').forEach((s,i)=>s.classList.toggle('on',i<n));
+  checkFbReady();
+}
+
+function checkFbReady(){
+  document.getElementById('fb_submit_btn').disabled=!(workedVal!==null && starVal>0);
+}
+
+async function submitFeedback(){
+  if(!currentIncidentId){alert('No analysis to give feedback on.');return;}
+  document.getElementById('fb_submit_btn').disabled=true;
+
+  const logText=document.getElementById('log_input').value.trim();
+  const payload={
+    incident_id:currentIncidentId,
+    log_snippet:logText.slice(0,1000),
+    fix_worked:workedVal,
+    rating:starVal,
+    correct_root_cause:document.getElementById('fb_correct_cause').value.trim()||null,
+    notes:document.getElementById('fb_notes').value.trim()||null,
+    source:document.getElementById('source').value,
+  };
+
+  try{
+    const r=await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    hide('fb_panel');
+    document.getElementById('fb_sent_msg').textContent=d.message||'Thank you!';
+    show('fb_sent');
+    checkStatus();
+  }catch(e){
+    alert('Could not submit feedback: '+e.message);
+    document.getElementById('fb_submit_btn').disabled=false;
+  }
+}
+
+/* ── learn stats ── */
+async function loadStats(){
+  document.getElementById('stats_content').innerHTML='<div class="empty-state">Loading...</div>';
+  try{
+    const d=await (await fetch('/learn/stats')).json();
+    renderStats(d);
+  }catch(e){
+    document.getElementById('stats_content').innerHTML=`<div class="error-box">Could not load stats: ${e.message}</div>`;
+  }
+}
+
+function renderStats(d){
+  const rate=d.fix_success_rate?Math.round(d.fix_success_rate*100):0;
+  let html=`
+  <div class="stat-grid">
+    <div class="stat-box"><div class="stat-val">${d.knowledge_base_total}</div><div class="stat-lbl">Total in KB</div></div>
+    <div class="stat-box"><div class="stat-val" style="color:#16a34a">${d.knowledge_base_learned}</div><div class="stat-lbl">Learned from feedback</div></div>
+    <div class="stat-box"><div class="stat-val">${d.total_feedback_received}</div><div class="stat-lbl">Feedback received</div></div>
+    <div class="stat-box"><div class="stat-val" style="color:#16a34a">${d.fixes_confirmed_working}</div><div class="stat-lbl">Fixes confirmed</div></div>
+    <div class="stat-box"><div class="stat-val" style="color:#dc2626">${d.fixes_not_working}</div><div class="stat-lbl">Fixes failed</div></div>
+    <div class="stat-box"><div class="stat-val">${d.average_rating>0?d.average_rating.toFixed(1):'—'}</div><div class="stat-lbl">Avg rating</div></div>
+  </div>`;
+
+  if(d.total_feedback_received>0){
+    html+=`<div class="card" style="margin-bottom:16px">
+      <div class="card-title">Fix success rate</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="progress-bar" style="flex:1"><div class="progress-fill" style="width:${rate}%;background:${rate>=70?'#16a34a':rate>=40?'#f59e0b':'#dc2626'}"></div></div>
+        <span style="font-size:14px;font-weight:600;color:#333;min-width:36px">${rate}%</span>
+      </div>
+      <div style="font-size:12px;color:#888;margin-top:6px">${d.fixes_confirmed_working} worked · ${d.fixes_not_working} failed · ${d.corrections_recorded} corrections recorded</div>
+    </div>`;
+  }
+
+  if(d.recently_learned && d.recently_learned.length){
+    html+=`<div class="card" style="margin-bottom:16px">
+      <div class="card-title">Recently learned incidents</div>`;
+    for(const i of d.recently_learned){
+      const ts=i.ts?new Date(i.ts).toLocaleString():'';
+      html+=`<div class="learned-item">
+        <span class="learned-badge">learned</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500;line-height:1.4">${i.root_cause}</div>
+          <div style="font-size:12px;color:#555;margin-top:2px">${i.fix_applied}</div>
+          <div style="font-size:11px;color:#aaa;margin-top:2px">${i.source||''} ${ts?'· '+ts:''}</div>
+        </div>
+      </div>`;
+    }
+    html+=`</div>`;
+  }else{
+    html+=`<div class="card">
+      <div class="card-title">Recently learned incidents</div>
+      <div class="empty-state" style="padding:20px">
+        No learned incidents yet.<br>
+        Analyze a log, then submit feedback with "Yes, it worked" + a rating ≥ 3 to teach the model.
+      </div>
+    </div>`;
+  }
+
+  if(d.top_sources && d.top_sources.length){
+    html+=`<div class="card">
+      <div class="card-title">Feedback by source</div>
+      <div style="display:flex;flex-direction:column;gap:8px">`;
+    const max=d.top_sources[0].count;
+    for(const s of d.top_sources){
+      html+=`<div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:12px;min-width:120px;color:#555">${s.source}</span>
+        <div class="progress-bar" style="flex:1"><div class="progress-fill" style="width:${Math.round(s.count/max*100)}%"></div></div>
+        <span style="font-size:12px;color:#888;min-width:20px">${s.count}</span>
+      </div>`;
+    }
+    html+=`</div></div>`;
+  }
+
+  document.getElementById('stats_content').innerHTML=html;
+}
+
+/* ── status bar ── */
+async function checkStatus(){
+  try{
+    const d=await (await fetch('/health')).json();
+    document.getElementById('hstatus').textContent=
+      `${d.llm_model} · ${d.incidents_indexed} incidents in KB`;
+  }catch{ document.getElementById('hstatus').textContent='API not reachable'; }
+}
+checkStatus();
+setInterval(checkStatus,30000);
+</script>
+</body>
+</html>

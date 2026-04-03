@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-log-analyzer-data
+  namespace: ai-log-analyzer
+  labels:
+    app: ai-log-analyzer
+spec:
+  # CRC provides a default StorageClass (crc-csi-hostpath-provisioner)
+  # so we don't need to specify one — it uses the default
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # ChromaDB vector store + knowledge base
+      storage: 5Gi

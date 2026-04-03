@@ -1,0 +1,21 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ai-log-analyzer
+  namespace: ai-log-analyzer
+  labels:
+    app: ai-log-analyzer
+spec:
+  # OpenShift will auto-assign:
+  # ai-log-analyzer-ai-log-analyzer.apps-crc.testing
+  to:
+    kind: Service
+    name: ai-log-analyzer
+    weight: 100
+  port:
+    targetPort: http
+  # TLS edge termination — HTTPS at the router, HTTP to the pod
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
